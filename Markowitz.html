@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markowitz / CAPM Pricer with Efficient Frontier</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<style>
+body { font-family: 'Inter', sans-serif; background: #f5f7fa; margin: 0; padding: 2rem; color: #111; }
+h1 { text-align:center }
+.container { max-width:1100px; margin:0 auto; background:white; padding:1.5rem; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,0.08);} 
+label{display:block;font-weight:600;margin-top:0.5rem}
+input, select { padding:0.5rem 0.75rem; border:1px solid #ddd; border-radius:6px; box-sizing:border-box; }
+button{background:linear-gradient(90deg,#f97316,#4f46e5);border:none;padding:10px 14px;border-radius:10px;color:white;font-weight:600;cursor:pointer}
+.stocks-list{margin-top:1rem}
+.stock-item{display:flex;align-items:center;gap:0.5rem;padding:0.4rem;border-radius:6px}
+.stock-item button{background:#ef4444;color:white;border:none;padding:4px 8px;border-radius:6px;cursor:pointer}
+.controls{display:grid;grid-template-columns:repeat(4,0.85fr);gap:1rem;margin-top:1rem;align-items:end}
+.result{margin-top:1rem;font-weight:600}
+.autocomplete-suggestions{border:1px solid #ccc;max-height:200px;overflow:auto;background:white;position:absolute;z-index:1000;width:100%}
+.autocomplete-suggestion{padding:0.5rem;cursor:pointer}
+.autocomplete-suggestion:hover{background:#f0f0f0}
+.stats {margin-top:1rem;font-weight:600}
+.weights {margin-top:1rem;font-weight:600}
+#stockSearch{width:100%; box-sizing:border-box; padding:0.5rem; border-radius:6px; border:1px solid #ddd;}
+#totalAlloc, #rfRate, #horizon{width:100%;}
+#computeBtn{width:100%; padding:12px 0;}
+.disclaimer {margin-top:1rem; font-size:0.9rem; color:#666; font-style:italic;}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Markowitz / CAPM Portfolio Optimizer with Efficient Frontier</h1>
+<div style="position:relative;">
+<label>Search stock (name or ticker)</label>
+<input id="stockSearch" placeholder="Type company name or ticker">
+<div id="searchSuggestions" class="autocomplete-suggestions"></div>
+<div style="margin-top:0.5rem;color:#666">Selected stocks (click remove to delete)</div>
+<div class="stocks-list" id="stocksList"></div>
+</div>
+<div class="controls">
+<div>
+<label>Total allocation (e.g., 100,000)</label>
+<input id="totalAlloc" />
+</div>
+<div>
+<label>Risk-free rate (annual %, e.g., 3)</label>
+<input id="rfRate" value="3" />
+</div>
+<div>
+<label>Horizon (days)</label>
+<select id="horizon">
+<option value="90">90</option>
+<option value="180">180</option>
+<option value="365" selected>365</option>
+</select>
+</div>
+<div>
+<button id="computeBtn">Compute Optimal Weights & Frontier</button>
+</div>
+</div>
+<div class="disclaimer">⚠️ Note: The backend server is hosted on Render’s free tier and may take up to 30 seconds to wake up after inactivity.</div>
+<div class="stats" id="stats"></div>
+<div class="weights" id="weights"></div>
+<canvas id="efficientFrontierChart" style="max-height:400px;margin-top:1rem"></canvas>
+</div>
+<script>
+const proxyURL='https://jointdefault.onrender.com';
+const maxStocks=30;
+let selected=[];
+let chart;
+
+function formatNumber(n){ return Number(n).toLocaleString(); }
+
+// Initialize Total Allocation input with formatted default value
+const totalAllocInput = document.getElementById('totalAlloc');
+totalAllocInput.value = formatNumber(100000);
+totalAllocInput.addEventListener('input', (e)=>{
+    let value = e.target.value.replace(/,/g,'');
+    if(!isNaN(value) && value.length > 0){
+        e.target.value = Number(value).toLocaleString();
+    }
+});
+
+async function fetchSuggestions(query){
+    if(!query) return [];
+    try {
+        const response = await axios.get(`${proxyURL}/api/autocomplete`, { params: { query } });
+        if(!response.data || !Array.isArray(response.data)) return [];
+        return response.data;
+    } catch(e){
+        console.error('Error fetching suggestions from proxy:', e.response?.status || e.message || e);
+        alert('Autocomplete unavailable. Check server endpoint /api/autocomplete.');
+        return [];
+    }
+}
+
+let debounceTimeout;
+const searchInput=document.getElementById('stockSearch');
+const suggestionsDiv=document.getElementById('searchSuggestions');
+searchInput.addEventListener('input',()=>{
+    clearTimeout(debounceTimeout);
+    debounceTimeout = setTimeout(async ()=>{
+        const query = searchInput.value.trim();
+        suggestionsDiv.innerHTML='';
+        if(!query) return;
+        const suggestions = await fetchSuggestions(query);
+        suggestions.slice(0,10).forEach(item=>{
+            const div = document.createElement('div');
+            div.className='autocomplete-suggestion';
+            div.innerText = `${item.name||item.symbol} (${item.symbol})`;
+            div.addEventListener('click', ()=>{ addStock(item.symbol); suggestionsDiv.innerHTML=''; searchInput.value=''; });
+            suggestionsDiv.appendChild(div);
+        });
+    }, 300);
+});
+
+function addStock(symbol){
+    if(selected.length >= maxStocks){ alert('Max '+maxStocks+' stocks'); return; }
+    if(selected.includes(symbol)){ alert('Already added'); return; }
+    selected.push(symbol);
+    renderSelected();
+}
+
+function renderSelected(){
+    const container = document.getElementById('stocksList');
+    container.innerHTML='';
+    selected.forEach(sym=>{
+        const div = document.createElement('div');
+        div.className='stock-item';
+        div.innerHTML = `<strong style='width:120px'>${sym}</strong>`;
+        const btn = document.createElement('button');
+        btn.textContent='Remove';
+        btn.addEventListener('click', ()=>{ selected = selected.filter(s=>s!==sym); renderSelected(); });
+        div.appendChild(btn);
+        container.appendChild(div);
+    });
+}
+
+async function fetchStockPrices(tickers, days){
+    if(!tickers.length) return [];
+    try{
+        const resp = await axios.get(`${proxyURL}/api/batch`, { params: { tickers: tickers.join(','), days } });
+        if(!resp.data || !Array.isArray(resp.data)) return [];
+        return resp.data;
+    } catch(err){
+        console.error('Error fetching batch stock data:', err);
+        alert('Failed to fetch stock data. The Render server might be waking up — please wait a few seconds and retry.');
+        return [];
+    }
+}
+
+function calculateReturns(prices){
+    return prices.map(arr => {
+        const returns = [];
+        for(let i=1;i<arr.length;i++){
+            if(arr[i-1] !== null && arr[i] !== null) returns.push((arr[i]-arr[i-1])/arr[i-1]);
+        }
+        return returns;
+    });
+}
+
+function mean(arr){ return arr.reduce((a,b)=>a+b,0)/arr.length; }
+
+function covarianceMatrix(returns){
+    const n = returns.length;
+    const len = returns[0].length;
+    const means = returns.map(r=>mean(r));
+    const cov = Array(n).fill(0).map(()=>Array(n).fill(0));
+    for(let i=0;i<n;i++){
+        for(let j=0;j<n;j++){
+            let sum=0;
+            for(let k=0;k<len;k++) sum += (returns[i][k]-means[i])*(returns[j][k]-means[j]);
+            cov[i][j]=sum/(len-1);
+        }
+    }
+    return cov;
+}
+
+function generateFrontier(returns, cov, rf){
+    const n=returns.length;
+    if(n===0) return [];
+    const steps=500;
+    const frontier=[];
+    for(let s=0;s<steps;s++){
+        let weights=[];
+        let sum=0;
+        for(let i=0;i<n;i++){ const w=Math.random(); weights.push(w); sum+=w; }
+        weights = weights.map(w=>w/sum);
+        const portReturn = weights.reduce((acc,wi,i)=>acc + wi*mean(returns[i]),0);
+        let portVar=0;
+        for(let i=0;i<n;i++) for(let j=0;j<n;j++) portVar += weights[i]*weights[j]*cov[i][j];
+        frontier.push({ret: portReturn*252, vol: Math.sqrt(portVar*252), weights});
+    }
+    return frontier;
+}
+
+function findMaxSharpe(frontier, rf){
+    if(!frontier.length) return null;
+    let maxSharpe=-Infinity, maxPoint=null;
+    frontier.forEach(p=>{
+        const sharpe = (p.ret - rf)/p.vol;
+        if(!isNaN(sharpe) && sharpe>maxSharpe){ maxSharpe=sharpe; maxPoint=p; }
+    });
+    return maxPoint;
+}
+
+function plotFrontier(frontier, maxSharpe){
+    const ctx = document.getElementById('efficientFrontierChart').getContext('2d');
+    const data = {
+        datasets:[{
+            label:'Efficient Frontier',
+            data: frontier.map(p=>({x:p.vol,y:p.ret})),
+            backgroundColor:'blue', pointRadius:4, showLine:false
+        }]
+    };
+    if(maxSharpe){
+        data.datasets.push({
+            label:'Max Sharpe',
+            data:[{x:maxSharpe.vol,y:maxSharpe.ret}],
+            backgroundColor:'red', pointRadius:6, showLine:false
+        });
+    }
+    if(chart) chart.destroy();
+    chart = new Chart(ctx,{ type:'scatter', data, options:{ scales:{ x:{title:{display:true,text:'Volatility'}}, y:{title:{display:true,text:'Return'}} } } });
+}
+
+document.getElementById('computeBtn').addEventListener('click', async ()=>{
+    if(!selected.length){ alert('Add at least one stock'); return; }
+    const days = parseInt(document.getElementById('horizon').value,10);
+    const rf = parseFloat(document.getElementById('rfRate').value)/100;
+    const totalAlloc = parseFloat(document.getElementById('totalAlloc').value.replace(/,/g,''));
+    const data = await fetchStockPrices(selected, days);
+    const prices = data.map(d=>d.close);
+    const returns = calculateReturns(prices);
+    const cov = covarianceMatrix(returns);
+    const frontier = generateFrontier(returns,cov,rf);
+    const maxPoint = findMaxSharpe(frontier,rf);
+    if(maxPoint){
+        document.getElementById('stats').innerText = `Max Sharpe Portfolio: Return ${formatNumber((maxPoint.ret*totalAlloc).toFixed(2))}, Volatility ${formatNumber((maxPoint.vol*totalAlloc).toFixed(2))}`;
+        const weightDiv = document.getElementById('weights');
+        weightDiv.innerHTML = 'Allocation per stock:<br>' + selected.map((s,i)=>`${s}: ${formatNumber((maxPoint.weights[i]*totalAlloc).toFixed(2))}`).join('<br>');
+    } else {
+        document.getElementById('stats').innerText='No valid portfolio computed';
+        document.getElementById('weights').innerHTML='';
+    }
+    plotFrontier(frontier,maxPoint);
+});
+</script>
+    <footer style="margin:40px auto 20px;max-width:920px;text-align:center;font-size:12px;color:#777;font-style:italic;">
+    © Quantik.org. All rights reserved. This model, including its code and associated intellectual property, is the exclusive property of Quantik.org and may not be copied, distributed, or replicated without prior written consent. Use of this calculator implies acceptance of these terms.
+  </footer>
+</body>
+</html>
+</body>
+</html>
