@@ -11,7 +11,7 @@ body { font-family: 'Inter', sans-serif; background: #f5f7fa; margin: 0; padding
 h1 { text-align:center }
 .container { max-width:1100px; margin:0 auto; background:white; padding:1.5rem; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,0.08);} 
 label{display:block;font-weight:600;margin-top:0.5rem}
-input, select { padding:0.5rem 0.75rem; border:1px solid #ddd; border-radius:6px; box-sizing:border-box; }
+input, select { padding:0.5rem 0.75rem; border:1px solid #ddd; border-radius:6px; box-sizing:border-box; height:2.5rem; }
 button{background:linear-gradient(90deg,#f97316,#4f46e5);border:none;padding:10px 14px;border-radius:10px;color:white;font-weight:600;cursor:pointer}
 .stocks-list{margin-top:1rem}
 .stock-item{display:flex;align-items:center;gap:0.5rem;padding:0.4rem;border-radius:6px}
@@ -24,7 +24,7 @@ button{background:linear-gradient(90deg,#f97316,#4f46e5);border:none;padding:10p
 .stats {margin-top:1rem;font-weight:600}
 .weights {margin-top:1rem;font-weight:600}
 #stockSearch{width:100%; box-sizing:border-box; padding:0.5rem; border-radius:6px; border:1px solid #ddd;}
-#totalAlloc, #rfRate, #horizon{width:100%;}
+#totalAlloc, #rfRate, #horizon{width:100%; height:2.5rem;}
 #computeBtn{width:100%; padding:12px 0;}
 .disclaimer {margin-top:1rem; font-size:0.9rem; color:#666; font-style:italic;}
 </style>
@@ -45,7 +45,7 @@ button{background:linear-gradient(90deg,#f97316,#4f46e5);border:none;padding:10p
 <input id="totalAlloc" />
 </div>
 <div>
-<label>Risk-free rate (annual %, e.g., 3)</label>
+<label>Risk free rate (%)</label>
 <input id="rfRate" value="3" />
 </div>
 <div>
@@ -73,7 +73,6 @@ let chart;
 
 function formatNumber(n){ return Number(n).toLocaleString(); }
 
-// Initialize Total Allocation input with formatted default value
 const totalAllocInput = document.getElementById('totalAlloc');
 totalAllocInput.value = formatNumber(100000);
 totalAllocInput.addEventListener('input', (e)=>{
@@ -248,10 +247,8 @@ document.getElementById('computeBtn').addEventListener('click', async ()=>{
     plotFrontier(frontier,maxPoint);
 });
 </script>
-    <footer style="margin:40px auto 20px;max-width:920px;text-align:center;font-size:12px;color:#777;font-style:italic;">
-    © Quantik.org. All rights reserved. This model, including its code and associated intellectual property, is the exclusive property of Quantik.org and may not be copied, distributed, or replicated without prior written consent. Use of this calculator implies acceptance of these terms.
-  </footer>
-</body>
-</html>
+<footer style="margin:40px auto 20px;max-width:920px;text-align:center;font-size:12px;color:#777;font-style:italic;">
+© Quantik.org. All rights reserved. This model, including its code and associated intellectual property, is the exclusive property of Quantik.org and may not be copied, distributed, or replicated without prior written consent. Use of this calculator implies acceptance of these terms.
+</footer>
 </body>
 </html>
